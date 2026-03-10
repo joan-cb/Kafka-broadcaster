@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kafka-broadcaster.fullname" . }}
+  namespace: {{ .Values.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "kafka-broadcaster.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: {{ .Values.broadcasterConfig.metrics.port | default 9090 }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "kafka-broadcaster.selectorLabels" . | nindent 4 }}

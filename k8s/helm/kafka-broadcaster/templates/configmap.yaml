@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kafka-broadcaster.fullname" . }}-config
+  namespace: {{ .Values.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "kafka-broadcaster.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    {{- .Values.broadcasterConfig | toYaml | nindent 4 }}

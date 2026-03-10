@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kafka Broadcaster — Dev UI</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:         #0f1117;
+      --surface:    #1a1d27;
+      --surface2:   #22263a;
+      --border:     #2e3347;
+      --accent:     #6c63ff;
+      --accent-dim: #4d46cc;
+      --green:      #34d399;
+      --red:        #f87171;
+      --yellow:     #fbbf24;
+      --text:       #e2e8f0;
+      --muted:      #8892a4;
+      --radius:     10px;
+      --font:       'Inter', system-ui, -apple-system, sans-serif;
+    }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Top bar ── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    header .logo { font-size: 1.1rem; font-weight: 700; color: var(--accent); letter-spacing: -.3px; }
+    header .sub  { font-size: .8rem; color: var(--muted); margin-left: 4px; }
+
+    .broker-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+    }
+    .broker-bar label { font-size: .8rem; color: var(--muted); }
+    .broker-bar input {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      padding: 6px 10px;
+      font-size: .85rem;
+      width: 200px;
+    }
+    .broker-bar input:focus { outline: none; border-color: var(--accent); }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 5px 12px;
+      font-size: .78rem;
+      color: var(--muted);
+    }
+    .pill .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--red);
+      transition: background .3s;
+    }
+    .pill .dot.connected { background: var(--green); }
+
+    /* ── Layout ── */
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      padding: 24px;
+      max-width: 1600px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .card-header .icon {
+      width: 32px; height: 32px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1rem;
+    }
+    .icon-produce { background: rgba(108,99,255,.15); }
+    .icon-consume { background: rgba(52,211,153,.12); }
+    .card-header h2 { font-size: .95rem; font-weight: 600; }
+    .card-header p  { font-size: .78rem; color: var(--muted); }
+    .card-body { padding: 20px; display: flex; flex-direction: column; gap: 14px; flex: 1; }
+
+    /* ── Form controls ── */
+    label.field-label { font-size: .78rem; color: var(--muted); display: block; margin-bottom: 4px; }
+
+    input[type="text"], textarea, select {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      padding: 9px 12px;
+      font-size: .88rem;
+      font-family: var(--font);
+      transition: border-color .2s;
+    }
+    input[type="text"]:focus, textarea:focus, select:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    textarea { resize: vertical; min-height: 120px; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: .82rem; }
+
+    /* ── Headers editor ── */
+    .headers-list { display: flex; flex-direction: column; gap: 6px; }
+    .header-row { display: flex; gap: 8px; align-items: center; }
+    .header-row input { flex: 1; }
+    .icon-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 6px;
+      width: 30px; height: 30px;
+      cursor: pointer;
+      font-size: 1rem;
+      display: flex; align-items: center; justify-content: center;
+      transition: all .15s;
+      flex-shrink: 0;
+    }
+    .icon-btn:hover { background: var(--surface2); color: var(--text); }
+    .icon-btn.danger:hover { border-color: var(--red); color: var(--red); }
+
+    .add-header-btn {
+      background: transparent;
+      border: 1px dashed var(--border);
+      color: var(--muted);
+      border-radius: 8px;
+      padding: 7px;
+      cursor: pointer;
+      font-size: .8rem;
+      width: 100%;
+      transition: all .15s;
+    }
+    .add-header-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ── Buttons ── */
+    .btn {
+      border: none;
+      border-radius: 8px;
+      padding: 10px 18px;
+      font-size: .88rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn-primary:hover { background: var(--accent-dim); }
+    .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-success { background: rgba(52,211,153,.15); color: var(--green); border: 1px solid rgba(52,211,153,.3); }
+    .btn-success:hover { background: rgba(52,211,153,.25); }
+    .btn-danger  { background: rgba(248,113,113,.12); color: var(--red);   border: 1px solid rgba(248,113,113,.3); }
+    .btn-danger:hover  { background: rgba(248,113,113,.22); }
+    .btn-ghost  { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn-ghost:hover  { border-color: var(--accent); }
+
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    /* ── Toast ── */
+    .toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 999;
+    }
+    .toast {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      font-size: .84rem;
+      max-width: 360px;
+      animation: slideIn .2s ease;
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+    }
+    .toast.success { border-left: 3px solid var(--green); }
+    .toast.error   { border-left: 3px solid var(--red);   }
+    .toast.info    { border-left: 3px solid var(--accent); }
+    @keyframes slideIn { from { opacity:0; transform: translateY(8px); } to { opacity:1; transform:none; } }
+
+    /* ── Consume messages feed ── */
+    .consume-controls { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+    .consume-controls .field { flex: 1; min-width: 120px; }
+
+    .messages-feed {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 480px;
+      min-height: 200px;
+    }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      color: var(--muted);
+      gap: 8px;
+      font-size: .85rem;
+      min-height: 160px;
+    }
+    .empty-state .big-icon { font-size: 2rem; opacity: .4; }
+
+    .msg-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      animation: fadeIn .25s ease;
+    }
+    @keyframes fadeIn { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:none; } }
+
+    .msg-meta {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: .72rem;
+      font-weight: 600;
+    }
+    .badge-topic   { background: rgba(108,99,255,.18); color: #a89fff; }
+    .badge-part    { background: rgba(251,191,36,.12);  color: var(--yellow); }
+    .badge-offset  { background: rgba(52,211,153,.1);   color: var(--green); }
+    .badge-ts      { background: var(--surface); color: var(--muted); font-weight: 400; font-size: .7rem; }
+
+    .msg-body {
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: .78rem;
+      color: #c4cfde;
+      background: var(--bg);
+      border-radius: 6px;
+      padding: 8px 10px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 160px;
+      overflow-y: auto;
+    }
+
+    .msg-headers {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .header-badge {
+      background: rgba(108,99,255,.1);
+      border: 1px solid rgba(108,99,255,.25);
+      border-radius: 5px;
+      padding: 2px 8px;
+      font-size: .72rem;
+      color: #c4b8ff;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    /* ── Topics dropdown ── */
+    .topic-suggestions {
+      position: relative;
+    }
+    datalist option { background: var(--surface2); }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+    .divider { height: 1px; background: var(--border); }
+
+    .row { display: flex; gap: 12px; }
+    .row .field { flex: 1; }
+
+    .msg-count {
+      font-size: .75rem;
+      color: var(--muted);
+      margin-left: auto;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">⚡ kafka-broadcaster</div>
+  <span class="sub">dev ui</span>
+  <div class="broker-bar">
+    <label for="globalBroker">Broker</label>
+    <input id="globalBroker" type="text" value="localhost:9092" placeholder="host:port" />
+  </div>
+</header>
+
+<main>
+  <!-- ── Produce ── -->
+  <div class="card">
+    <div class="card-header">
+      <div class="icon icon-produce">📤</div>
+      <div>
+        <h2>Produce Message</h2>
+        <p>Send a message to any topic with custom headers</p>
+      </div>
+    </div>
+    <div class="card-body">
+
+      <div class="row">
+        <div class="field">
+          <label class="field-label">Topic *</label>
+          <input id="pTopic" type="text" list="topicList" placeholder="e.g. internal.events" />
+          <datalist id="topicList"></datalist>
+        </div>
+        <div class="field">
+          <label class="field-label">Message Key <span style="color:var(--muted)">(optional)</span></label>
+          <input id="pKey" type="text" placeholder="e.g. user-123" />
+        </div>
+      </div>
+
+      <div>
+        <label class="field-label">Kafka Headers</label>
+        <div class="headers-list" id="headersList">
+          <div class="header-row">
+            <input type="text" placeholder="Header key" class="hKey" value="target-topic" />
+            <input type="text" placeholder="Header value" class="hVal" value="" />
+            <button class="icon-btn danger" onclick="removeHeaderRow(this)" title="Remove">✕</button>
+          </div>
+        </div>
+        <button class="add-header-btn" onclick="addHeaderRow()" style="margin-top:6px">+ Add header</button>
+      </div>
+
+      <div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px">
+          <label class="field-label" style="margin:0">Payload (JSON)</label>
+          <button class="icon-btn" onclick="formatJSON()" title="Format JSON" style="width:auto;padding:2px 8px;font-size:.75rem">Format</button>
+        </div>
+        <textarea id="pPayload" placeholder='{"key": "value"}'>{
+  "transaction_id": "TX-001",
+  "amount": 99.99,
+  "currency": "GBP"
+}</textarea>
+      </div>
+
+      <div class="btn-row" style="margin-top:auto">
+        <button class="btn btn-primary" onclick="produce()" id="produceBtn">
+          <span>Send Message</span>
+        </button>
+        <button class="btn btn-ghost" onclick="loadTopics()">↻ Refresh topics</button>
+      </div>
+
+      <div id="produceResult" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- ── Consume ── -->
+  <div class="card">
+    <div class="card-header">
+      <div class="icon icon-consume">📥</div>
+      <div>
+        <h2>Consume Messages</h2>
+        <p>Watch messages arrive on any topic in real-time</p>
+      </div>
+      <span class="msg-count" id="msgCount">0 messages</span>
+    </div>
+    <div class="card-body">
+
+      <div class="consume-controls">
+        <div class="field">
+          <label class="field-label">Topic *</label>
+          <input id="cTopic" type="text" list="topicList" placeholder="e.g. orders.processed" />
+        </div>
+        <div class="field" style="max-width:130px">
+          <label class="field-label">Start from</label>
+          <select id="cFrom">
+            <option value="latest">Latest</option>
+            <option value="beginning">Beginning</option>
+          </select>
+        </div>
+        <div style="display:flex;gap:8px;padding-bottom:1px">
+          <button class="btn btn-success" id="startBtn" onclick="startConsuming()">▶ Start</button>
+          <button class="btn btn-danger"  id="stopBtn"  onclick="stopConsuming()" disabled>■ Stop</button>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:center">
+        <div class="pill">
+          <span class="dot" id="sseStatusDot"></span>
+          <span id="sseStatusText">Disconnected</span>
+        </div>
+        <button class="btn btn-ghost" onclick="clearMessages()" style="padding:4px 10px;font-size:.78rem">Clear</button>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="messages-feed" id="messagesFeed">
+        <div class="empty-state" id="emptyState">
+          <div class="big-icon">📭</div>
+          <div>Start consuming to see messages here</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+  // ── State ──────────────────────────────────────────────────────────────────
+  let eventSource = null;
+  let messageCount = 0;
+
+  function getBroker() {
+    return document.getElementById('globalBroker').value.trim() || 'localhost:9092';
+  }
+
+  function apiBase() {
+    return window.location.origin;
+  }
+
+  // ── Topics ─────────────────────────────────────────────────────────────────
+  async function loadTopics() {
+    try {
+      const res = await fetch(`${apiBase()}/api/topics?broker=${encodeURIComponent(getBroker())}`);
+      if (!res.ok) throw new Error(await res.text());
+      const { topics } = await res.json();
+      const dl = document.getElementById('topicList');
+      dl.innerHTML = '';
+      (topics || []).sort().forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t;
+        dl.appendChild(opt);
+      });
+      toast(`Loaded ${topics.length} topics`, 'info');
+    } catch (e) {
+      toast(`Failed to load topics: ${e.message}`, 'error');
+    }
+  }
+
+  // ── Headers ────────────────────────────────────────────────────────────────
+  function addHeaderRow() {
+    const row = document.createElement('div');
+    row.className = 'header-row';
+    row.innerHTML = `
+      <input type="text" placeholder="Header key" class="hKey" />
+      <input type="text" placeholder="Header value" class="hVal" />
+      <button class="icon-btn danger" onclick="removeHeaderRow(this)" title="Remove">✕</button>
+    `;
+    document.getElementById('headersList').appendChild(row);
+  }
+
+  function removeHeaderRow(btn) {
+    btn.closest('.header-row').remove();
+  }
+
+  function getHeaders() {
+    const headers = {};
+    document.querySelectorAll('#headersList .header-row').forEach(row => {
+      const key = row.querySelector('.hKey').value.trim();
+      const val = row.querySelector('.hVal').value.trim();
+      if (key) headers[key] = val;
+    });
+    return headers;
+  }
+
+  // ── JSON format ────────────────────────────────────────────────────────────
+  function formatJSON() {
+    const ta = document.getElementById('pPayload');
+    try {
+      ta.value = JSON.stringify(JSON.parse(ta.value), null, 2);
+    } catch {
+      toast('Invalid JSON — cannot format', 'error');
+    }
+  }
+
+  // ── Produce ────────────────────────────────────────────────────────────────
+  async function produce() {
+    const topic   = document.getElementById('pTopic').value.trim();
+    const key     = document.getElementById('pKey').value.trim();
+    const payload = document.getElementById('pPayload').value.trim();
+    const headers = getHeaders();
+
+    if (!topic) { toast('Topic is required', 'error'); return; }
+
+    const btn = document.getElementById('produceBtn');
+    btn.disabled = true;
+    btn.querySelector('span').textContent = 'Sending…';
+
+    try {
+      const res = await fetch(`${apiBase()}/api/produce`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ broker: getBroker(), topic, key, payload, headers }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || data.error);
+
+      showProduceResult(true, `Delivered → partition ${data.partition}, offset ${data.offset}`);
+      toast(`Message sent to <strong>${topic}</strong>`, 'success');
+    } catch (e) {
+      showProduceResult(false, e.message);
+      toast(`Produce failed: ${e.message}`, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.querySelector('span').textContent = 'Send Message';
+    }
+  }
+
+  function showProduceResult(success, msg) {
+    const el = document.getElementById('produceResult');
+    el.style.display = 'block';
+    el.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;
+                  background:${success ? 'rgba(52,211,153,.08)' : 'rgba(248,113,113,.08)'};
+                  border:1px solid ${success ? 'rgba(52,211,153,.25)' : 'rgba(248,113,113,.25)'};
+                  font-size:.82rem;color:${success ? 'var(--green)' : 'var(--red)'}">
+        ${success ? '✔' : '✖'} ${msg}
+      </div>`;
+    setTimeout(() => el.style.display = 'none', 5000);
+  }
+
+  // ── Consume ────────────────────────────────────────────────────────────────
+  function startConsuming() {
+    const topic = document.getElementById('cTopic').value.trim();
+    if (!topic) { toast('Topic is required', 'error'); return; }
+
+    stopConsuming();
+
+    const from   = document.getElementById('cFrom').value;
+    const broker = getBroker();
+    const url    = `${apiBase()}/api/consume?topic=${encodeURIComponent(topic)}&from=${from}&broker=${encodeURIComponent(broker)}`;
+
+    eventSource = new EventSource(url);
+
+    eventSource.addEventListener('connected', () => {
+      setSSEStatus(true);
+      toast(`Consuming from <strong>${topic}</strong>`, 'info');
+    });
+
+    eventSource.addEventListener('message', e => {
+      try {
+        const msg = JSON.parse(e.data);
+        appendMessage(msg);
+      } catch { /* ignore malformed */ }
+    });
+
+    eventSource.onerror = () => {
+      setSSEStatus(false);
+      document.getElementById('startBtn').disabled = false;
+      document.getElementById('stopBtn').disabled  = true;
+    };
+
+    document.getElementById('startBtn').disabled = true;
+    document.getElementById('stopBtn').disabled  = false;
+  }
+
+  function stopConsuming() {
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
+    }
+    setSSEStatus(false);
+    document.getElementById('startBtn').disabled = false;
+    document.getElementById('stopBtn').disabled  = true;
+  }
+
+  function setSSEStatus(connected) {
+    const dot  = document.getElementById('sseStatusDot');
+    const text = document.getElementById('sseStatusText');
+    dot.className  = 'dot' + (connected ? ' connected' : '');
+    text.textContent = connected ? 'Connected' : 'Disconnected';
+  }
+
+  function appendMessage(msg) {
+    const feed = document.getElementById('messagesFeed');
+    const empty = document.getElementById('emptyState');
+    if (empty) empty.remove();
+
+    messageCount++;
+    document.getElementById('msgCount').textContent = `${messageCount} message${messageCount !== 1 ? 's' : ''}`;
+
+    let bodyDisplay = msg.value;
+    try { bodyDisplay = JSON.stringify(JSON.parse(msg.value), null, 2); } catch { /* keep raw */ }
+
+    const headerBadges = Object.entries(msg.headers || {}).map(([k, v]) =>
+      `<span class="header-badge">${escHtml(k)}: ${escHtml(v)}</span>`
+    ).join('');
+
+    const card = document.createElement('div');
+    card.className = 'msg-card';
+    card.innerHTML = `
+      <div class="msg-meta">
+        <span class="badge badge-topic">${escHtml(msg.topic)}</span>
+        <span class="badge badge-part">partition ${msg.partition}</span>
+        <span class="badge badge-offset">offset ${msg.offset}</span>
+        ${msg.key ? `<span class="badge badge-ts">key: ${escHtml(msg.key)}</span>` : ''}
+        <span class="badge badge-ts">${msg.timestamp}</span>
+      </div>
+      ${headerBadges ? `<div class="msg-headers">${headerBadges}</div>` : ''}
+      <div class="msg-body">${escHtml(bodyDisplay)}</div>
+    `;
+
+    feed.insertBefore(card, feed.firstChild);
+
+    // Keep feed from growing unbounded
+    while (feed.children.length > 100) {
+      feed.removeChild(feed.lastChild);
+    }
+  }
+
+  function clearMessages() {
+    messageCount = 0;
+    document.getElementById('msgCount').textContent = '0 messages';
+    const feed = document.getElementById('messagesFeed');
+    feed.innerHTML = `
+      <div class="empty-state" id="emptyState">
+        <div class="big-icon">📭</div>
+        <div>Start consuming to see messages here</div>
+      </div>`;
+  }
+
+  // ── Toast ──────────────────────────────────────────────────────────────────
+  function toast(msg, type = 'info', duration = 4000) {
+    const container = document.getElementById('toastContainer');
+    const el = document.createElement('div');
+    el.className = `toast ${type}`;
+    el.innerHTML = msg;
+    container.appendChild(el);
+    setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; setTimeout(() => el.remove(), 300); }, duration);
+  }
+
+  // ── Utils ──────────────────────────────────────────────────────────────────
+  function escHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // ── Init ───────────────────────────────────────────────────────────────────
+  window.addEventListener('DOMContentLoaded', () => {
+    loadTopics();
+  });
+
+  window.addEventListener('beforeunload', stopConsuming);
+</script>
+</body>
+</html>
