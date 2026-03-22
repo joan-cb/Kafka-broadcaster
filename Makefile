@@ -6,7 +6,7 @@ UI_CMD     := ./cmd/kafkaui
 MODULE     := github.com/globalcommerce/kafka-broadcaster
 
 .PHONY: all build build/ui run run/ui lint fmt vet tidy \
-        test test/unit test/stubbed test/functional test/e2e test/nft \
+        test test/all test/unit test/stubbed test/functional test/e2e test/nft \
         clean help
 
 all: build
@@ -46,8 +46,11 @@ tidy:
 	go mod tidy
 	go mod verify
 
-## test: Run all test suites (unit + stubbed). Functional, e2e, and nft require Docker and are opt-in.
+## test: Run default suites (unit + stubbed only; no Docker)
 test: test/unit test/stubbed
+
+## test/all: Run every suite: unit, stubbed, functional, e2e, nft (requires Docker; e2e runs build)
+test/all: test/unit test/stubbed test/functional test/e2e test/nft
 
 ## test/unit: Run unit tests for all internal packages
 test/unit:
