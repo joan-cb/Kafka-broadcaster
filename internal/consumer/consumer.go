@@ -2,6 +2,7 @@ package consumer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -40,7 +41,15 @@ func (c *Consumer) Run(ctx context.Context) <-chan *kgo.Record {
 			if fetches.IsClientClosed() {
 				return
 			}
+			// After ctx is cancelled, PollFetches returns immediately with per-partition
+			// errors; exit instead of spinning and logging them thousands of times.
+			if ctx.Err() != nil {
+				return
+			}
 			fetches.EachError(func(topic string, partition int32, err error) {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return
+				}
 				c.logger.Error("fetch error", "topic", topic, "partition", partition, "error", err)
 			})
 			fetches.EachRecord(func(record *kgo.Record) {

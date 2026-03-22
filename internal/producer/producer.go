@@ -19,6 +19,7 @@ type Producer struct {
 func New(cfg *config.KafkaConfig, logger *slog.Logger) (*Producer, error) {
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(cfg.Brokers...),
+		kgo.AllowAutoTopicCreation(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating kafka producer: %w", err)

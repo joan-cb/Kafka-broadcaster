@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -76,10 +77,29 @@ func writeTempConfig(t *testing.T, broker, sourceTopic, consumerGroup, dlqTopic 
 	return f.Name()
 }
 
+// moduleRoot returns the directory containing go.mod. Tests run with cwd set to
+// the package dir (tests/e2e), so relative paths like ./cmd/broadcaster must be
+// built from the module root.
+func moduleRoot(t *testing.T) string {
+	t.Helper()
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+	dir := wd
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		require.NotEqual(t, parent, dir, "go.mod not found from %s", wd)
+		dir = parent
+	}
+}
+
 func buildBinary(t *testing.T) string {
 	t.Helper()
-	bin := t.TempDir() + "/broadcaster"
+	bin := filepath.Join(t.TempDir(), "broadcaster")
 	cmd := exec.Command("go", "build", "-o", bin, "./cmd/broadcaster")
+	cmd.Dir = moduleRoot(t)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	require.NoError(t, cmd.Run(), "failed to build broadcaster binary")
@@ -118,7 +138,10 @@ func TestE2E_FullMessageLifecycle(t *testing.T) {
 	time.Sleep(3 * time.Second)
 
 	// Produce a test message to the source topic.
-	seedClient, err := kgo.NewClient(kgo.SeedBrokers(broker))
+	seedClient, err := kgo.NewClient(
+		kgo.SeedBrokers(broker),
+		kgo.AllowAutoTopicCreation(),
+	)
 	require.NoError(t, err)
 	defer seedClient.Close()
 
@@ -140,6 +163,7 @@ func TestE2E_FullMessageLifecycle(t *testing.T) {
 		kgo.SeedBrokers(broker),
 		kgo.ConsumeTopics(targetTopic),
 		kgo.ConsumerGroup(fmt.Sprintf("e2e-verifier-%d", time.Now().UnixNano())),
+		kgo.AllowAutoTopicCreation(),
 	)
 	require.NoError(t, err)
 	defer targetClient.Close()

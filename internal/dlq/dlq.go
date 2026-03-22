@@ -19,7 +19,10 @@ type Sender struct {
 
 // New creates a DLQ Sender backed by the provided Kafka brokers.
 func New(brokers []string, dlqTopic string, m *metrics.Metrics, logger *slog.Logger) (*Sender, error) {
-	client, err := kgo.NewClient(kgo.SeedBrokers(brokers...))
+	client, err := kgo.NewClient(
+		kgo.SeedBrokers(brokers...),
+		kgo.AllowAutoTopicCreation(),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("creating dlq producer: %w", err)
 	}

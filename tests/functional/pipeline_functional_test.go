@@ -62,7 +62,10 @@ func TestFunctional_FullPipeline(t *testing.T) {
 	l := logger()
 
 	// Seed a message to the source topic before starting the pipeline consumer.
-	seedClient, err := kgo.NewClient(kgo.SeedBrokers(broker))
+	seedClient, err := kgo.NewClient(
+		kgo.SeedBrokers(broker),
+		kgo.AllowAutoTopicCreation(),
+	)
 	require.NoError(t, err)
 	defer seedClient.Close()
 
@@ -115,26 +118,26 @@ func TestFunctional_FullPipeline(t *testing.T) {
 		kgo.SeedBrokers(broker),
 		kgo.ConsumeTopics(targetTopic),
 		kgo.ConsumerGroup(fmt.Sprintf("verifier-%d", time.Now().UnixNano())),
+		kgo.AllowAutoTopicCreation(),
 	)
 	require.NoError(t, err)
 	defer targetClient.Close()
 
 	deadline := time.After(20 * time.Second)
 	var received []byte
-outer:
-	for {
+	for received == nil {
 		select {
 		case <-deadline:
 			t.Fatal("timed out waiting for message on target topic")
 		default:
-			fetches := targetClient.PollFetches(pipelineCtx)
-			fetches.EachRecord(func(r *kgo.Record) {
-				received = r.Value
-				cancel()
-			})
-			if received != nil {
-				break outer
-			}
+		}
+		fetches := targetClient.PollFetches(pipelineCtx)
+		fetches.EachRecord(func(r *kgo.Record) {
+			received = r.Value
+			cancel()
+		})
+		if received == nil {
+			time.Sleep(20 * time.Millisecond)
 		}
 	}
 
