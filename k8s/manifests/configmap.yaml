@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-broadcaster-config
+  namespace: kafka-broadcaster
+  labels:
+    app.kubernetes.io/name: kafka-broadcaster
+    app.kubernetes.io/instance: kafka-broadcaster
+data:
+  config.yaml: |
+    kafka:
+      brokers:
+        - "broker:9092"
+      source_topic: "internal.events"
+      consumer_group: "broadcaster-client-a"
+      dlq_topic: "broadcaster.dlq"
+
+    routing:
+      header_key: "target-topic"
+
+    transformation:
+      rules:
+        - from: "$.transaction.id"
+          to: "$.txId"
+        - from: "$.user.name"
+          to: "$.userName"
+
+    enrichment:
+      - type: "uuid_from_transaction"
+        config:
+          input_field: "$.txId"
+          output_field: "$.eventId"
+          algorithm: "sha256"
+
+    metrics:
+      enabled: true
+      port: 9090
+      path: "/metrics"

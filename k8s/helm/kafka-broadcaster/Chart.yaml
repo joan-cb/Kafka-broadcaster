@@ -1,6 +1,0 @@
-apiVersion: v2
-name: kafka-broadcaster
-description: Per-client Kafka message routing, transformation and enrichment microservice.
-type: application
-version: 0.1.0
-appVersion: "0.1.0"

@@ -1,0 +1,18 @@
+# Requires Prometheus Operator (monitoring.coreos.com/v1).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kafka-broadcaster
+  namespace: kafka-broadcaster
+  labels:
+    app.kubernetes.io/name: kafka-broadcaster
+    app.kubernetes.io/instance: kafka-broadcaster
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka-broadcaster
+      app.kubernetes.io/instance: kafka-broadcaster
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s

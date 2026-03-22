@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-broadcaster
+  namespace: kafka-broadcaster
+  labels:
+    app.kubernetes.io/name: kafka-broadcaster
+    app.kubernetes.io/instance: kafka-broadcaster
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka-broadcaster
+      app.kubernetes.io/instance: kafka-broadcaster
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+      labels:
+        app.kubernetes.io/name: kafka-broadcaster
+        app.kubernetes.io/instance: kafka-broadcaster
+    spec:
+      containers:
+        - name: broadcaster
+          image: gcr.io/globalcommerce/kafka-broadcaster:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CONFIG_PATH
+              value: /etc/broadcaster/config.yaml
+          volumeMounts:
+            - name: config
+              mountPath: /etc/broadcaster
+              readOnly: true
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: kafka-broadcaster-config
