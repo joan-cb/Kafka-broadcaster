@@ -43,6 +43,9 @@ func logger() *slog.Logger {
 }
 
 func TestFunctional_FullPipeline(t *testing.T) {
+	skipFunctionalIfNoDocker(t)
+	tc.SkipIfProviderIsNotHealthy(t)
+
 	ctx := context.Background()
 	broker := startKafka(ctx, t)
 

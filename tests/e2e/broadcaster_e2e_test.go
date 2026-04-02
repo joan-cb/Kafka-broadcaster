@@ -107,6 +107,9 @@ func buildBinary(t *testing.T) string {
 }
 
 func TestE2E_FullMessageLifecycle(t *testing.T) {
+	skipE2EIfNoDocker(t)
+	tc.SkipIfProviderIsNotHealthy(t)
+
 	ctx := context.Background()
 	broker := startKafka(ctx, t)
 
