@@ -13,7 +13,7 @@ A small **Kafka dev UI** (`kafkaui`) is included for local development: list top
 ## 1. Clone and fetch modules
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/joan-cb/Kafka-broadcaster.git
 cd kafka-broadcaster
 go mod download
 ```
