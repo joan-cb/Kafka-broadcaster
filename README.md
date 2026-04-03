@@ -1,8 +1,8 @@
 # 📡 kafka-broadcaster
 
-Service that **consumes** JSON from a Kafka source topic (📥), **transforms** and **enriches** payloads (🔄), **routes** to target topics via headers or content rules (🧭), sends failures to a **DLQ** (⚠️), and can expose **Prometheus** metrics (📊).
+- Service that **consumes** JSON from a Kafka source topic (📥), **transforms** and **enriches** payloads (🔄), **routes** to target topics via headers or content rules (🧭), sends failures to a **DLQ** (⚠️), and can expose **Prometheus** metrics (📊).
 
-A small **Kafka dev UI** (`kafkaui`) is included for local development: list topics, produce messages, and consume streams in the browser (🖥️).
+- A small **Kafka dev UI** (`kafkaui`) is included for local development: list topics, produce messages, and consume streams in the browser (🖥️).
 
 ## 🧰 Prerequisites
 
