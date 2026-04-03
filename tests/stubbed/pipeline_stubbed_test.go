@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/globalcommerce/kafka-broadcaster/internal/config"
+	"github.com/globalcommerce/kafka-broadcaster/internal/contentrouter"
 	"github.com/globalcommerce/kafka-broadcaster/internal/enricher"
 	"github.com/globalcommerce/kafka-broadcaster/internal/pipeline"
 	"github.com/globalcommerce/kafka-broadcaster/internal/router"
@@ -169,4 +170,69 @@ func TestStubbed_MultipleMessages_AllRouted(t *testing.T) {
 
 	assert.Empty(t, d.records)
 	assert.Len(t, prod.messages["target.topic"], msgCount)
+}
+
+func TestStubbed_ContentRouting_EndToEnd(t *testing.T) {
+	prod := newMemProducer()
+	d := &memDLQ{}
+
+	cr, err := contentrouter.New(config.ContentRoutingConfig{
+		Enabled:   true,
+		KeyPath:   "$.kind",
+		ValueType: config.ContentValueString,
+		Routes: map[string][]string{
+			"order": {"orders.out", "audit.out"},
+		},
+	})
+	require.NoError(t, err)
+
+	enc, err := enricher.NewChain([]config.EnrichmentConfig{
+		{
+			Type: "uuid_from_transaction",
+			Config: map[string]interface{}{
+				"input_field":  "$.txId",
+				"output_field": "$.eventId",
+				"algorithm":    "sha256",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	p := pipeline.New(pipeline.Config{
+		Router:        router.New("target-topic"),
+		ContentRouter: cr,
+		Transformer: transformer.New([]config.TransformationRule{
+			{From: "$.transaction_id", To: "$.txId"},
+		}),
+		Enricher:    enc,
+		Producer:    prod,
+		DLQ:         d,
+		SourceTopic: "internal.events",
+		Logger:      logger(),
+	})
+
+	payload, _ := json.Marshal(map[string]interface{}{
+		"transaction_id": "TX-CR-1",
+		"kind":           "order",
+	})
+
+	ch := make(chan *kgo.Record, 1)
+	ch <- &kgo.Record{
+		Topic:   "internal.events",
+		Value:   payload,
+		Headers: nil,
+	}
+	close(ch)
+
+	p.Run(context.Background(), ch)
+
+	assert.Empty(t, d.records)
+	require.Len(t, prod.messages["orders.out"], 1)
+	require.Len(t, prod.messages["audit.out"], 1)
+	assert.Equal(t, prod.messages["orders.out"][0], prod.messages["audit.out"][0])
+
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(prod.messages["orders.out"][0], &result))
+	assert.Equal(t, "TX-CR-1", result["txId"])
+	assert.NotEmpty(t, result["eventId"])
 }

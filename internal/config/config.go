@@ -7,7 +7,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-
 // Load reads the YAML config file at the given path and returns a validated Config.
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
@@ -50,6 +49,39 @@ func (c *Config) validate() error {
 	for i, enc := range c.Enrichment {
 		if enc.Type == "" {
 			return fmt.Errorf("enrichment[%d]: type must not be empty", i)
+		}
+	}
+	if err := c.Routing.ContentRouting.validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c ContentRoutingConfig) validate() error {
+	if !c.Enabled {
+		return nil
+	}
+	if c.KeyPath == "" {
+		return fmt.Errorf("routing.content_routing.key_path must not be empty when content_routing.enabled is true")
+	}
+	if err := c.ValueType.Validate(); err != nil {
+		return fmt.Errorf("routing.content_routing: %w", err)
+	}
+	// Reuse same rules as contentrouter.New for routes (keep messages aligned).
+	if len(c.Routes) == 0 {
+		return fmt.Errorf("routing.content_routing.routes must not be empty when enabled")
+	}
+	for k, topics := range c.Routes {
+		if k == "" {
+			return fmt.Errorf("routing.content_routing.routes: keys must not be empty")
+		}
+		if len(topics) == 0 {
+			return fmt.Errorf("routing.content_routing.routes[%q] must list at least one topic", k)
+		}
+		for i, t := range topics {
+			if t == "" {
+				return fmt.Errorf("routing.content_routing.routes[%q][%d] must not be empty", k, i)
+			}
 		}
 	}
 	return nil

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/globalcommerce/kafka-broadcaster/internal/contentrouter"
 	"github.com/globalcommerce/kafka-broadcaster/internal/enricher"
 	"github.com/globalcommerce/kafka-broadcaster/internal/metrics"
 	"github.com/globalcommerce/kafka-broadcaster/internal/router"
@@ -22,41 +23,53 @@ type DLQSender interface {
 	Send(ctx context.Context, record *kgo.Record, stage string, err error)
 }
 
-// Pipeline orchestrates the consume → route → transform → enrich → produce flow.
+// Pipeline orchestrates consume → route → transform → enrich → produce.
+//
+// Ordering (success path):
+//   - When content routing is nil: header routing → transformation → enrichment
+//     → produce (legacy; header must resolve the target topic).
+//   - When content routing is set: transformation → content routing (JSON field
+//     on the transformed payload) → enrichment → produce to each resolved
+//     topic (header is ignored for topic choice). If content routing fails, the
+//     message is sent to the DLQ with stage content_routing; the header is not
+//     used as a fallback.
 type Pipeline struct {
-	router      *router.Router
-	transformer *transformer.Transformer
-	enricher    enricher.Enricher
-	producer    Producer
-	dlq         DLQSender
-	metrics     *metrics.Metrics
-	sourceTopic string
-	logger      *slog.Logger
+	router        *router.Router
+	contentRouter *contentrouter.Router
+	transformer   *transformer.Transformer
+	enricher      enricher.Enricher
+	producer      Producer
+	dlq           DLQSender
+	metrics       *metrics.Metrics
+	sourceTopic   string
+	logger        *slog.Logger
 }
 
 // Config holds all dependencies needed by the pipeline.
 type Config struct {
-	Router      *router.Router
-	Transformer *transformer.Transformer
-	Enricher    enricher.Enricher
-	Producer    Producer
-	DLQ         DLQSender
-	Metrics     *metrics.Metrics
-	SourceTopic string
-	Logger      *slog.Logger
+	Router        *router.Router
+	ContentRouter *contentrouter.Router
+	Transformer   *transformer.Transformer
+	Enricher      enricher.Enricher
+	Producer      Producer
+	DLQ           DLQSender
+	Metrics       *metrics.Metrics
+	SourceTopic   string
+	Logger        *slog.Logger
 }
 
 // New creates a Pipeline from the provided Config.
 func New(cfg Config) *Pipeline {
 	return &Pipeline{
-		router:      cfg.Router,
-		transformer: cfg.Transformer,
-		enricher:    cfg.Enricher,
-		producer:    cfg.Producer,
-		dlq:         cfg.DLQ,
-		metrics:     cfg.Metrics,
-		sourceTopic: cfg.SourceTopic,
-		logger:      cfg.Logger,
+		router:        cfg.Router,
+		contentRouter: cfg.ContentRouter,
+		transformer:   cfg.Transformer,
+		enricher:      cfg.Enricher,
+		producer:      cfg.Producer,
+		dlq:           cfg.DLQ,
+		metrics:       cfg.Metrics,
+		sourceTopic:   cfg.SourceTopic,
+		logger:        cfg.Logger,
 	}
 }
 
@@ -83,7 +96,15 @@ func (p *Pipeline) process(ctx context.Context, record *kgo.Record) {
 		p.metrics.MessagesConsumed.WithLabelValues(p.sourceTopic).Inc()
 	}
 
-	// Stage 1: routing
+	if p.contentRouter != nil {
+		p.processWithContentRouting(ctx, record, start)
+		return
+	}
+	p.processWithHeaderRouting(ctx, record, start)
+}
+
+func (p *Pipeline) processWithHeaderRouting(ctx context.Context, record *kgo.Record, start time.Time) {
+	// Stage: routing (header)
 	stageStart := time.Now()
 	targetTopic, err := p.router.Resolve(record.Headers)
 	if err != nil {
@@ -92,7 +113,7 @@ func (p *Pipeline) process(ctx context.Context, record *kgo.Record) {
 	}
 	p.observeStage("routing", stageStart)
 
-	// Stage 2: transformation
+	// Stage: transformation
 	stageStart = time.Now()
 	payload, err := p.transformer.Transform(record.Value)
 	if err != nil {
@@ -101,7 +122,7 @@ func (p *Pipeline) process(ctx context.Context, record *kgo.Record) {
 	}
 	p.observeStage("transformation", stageStart)
 
-	// Stage 3: enrichment
+	// Stage: enrichment
 	stageStart = time.Now()
 	payload, err = p.enricher.Enrich(payload)
 	if err != nil {
@@ -110,7 +131,7 @@ func (p *Pipeline) process(ctx context.Context, record *kgo.Record) {
 	}
 	p.observeStage("enrichment", stageStart)
 
-	// Stage 4: produce
+	// Stage: produce
 	stageStart = time.Now()
 	outRecord := cloneRecord(record)
 	outRecord.Value = payload
@@ -128,6 +149,59 @@ func (p *Pipeline) process(ctx context.Context, record *kgo.Record) {
 
 	p.logger.Debug("message processed",
 		"target_topic", targetTopic,
+		"duration_ms", time.Since(start).Milliseconds(),
+	)
+}
+
+func (p *Pipeline) processWithContentRouting(ctx context.Context, record *kgo.Record, start time.Time) {
+	// Stage: transformation (before content routing so key_path applies to transformed JSON)
+	stageStart := time.Now()
+	payload, err := p.transformer.Transform(record.Value)
+	if err != nil {
+		p.handleFailure(ctx, record, "transformation", err)
+		return
+	}
+	p.observeStage("transformation", stageStart)
+
+	// Stage: content routing (strict type + map lookup; header ignored for targets)
+	stageStart = time.Now()
+	targetTopics, err := p.contentRouter.ResolveTopics(payload)
+	if err != nil {
+		p.handleFailure(ctx, record, "content_routing", err)
+		return
+	}
+	p.observeStage("content_routing", stageStart)
+
+	// Stage: enrichment (same payload to every target)
+	stageStart = time.Now()
+	payload, err = p.enricher.Enrich(payload)
+	if err != nil {
+		p.handleFailure(ctx, record, "enrichment", err)
+		return
+	}
+	p.observeStage("enrichment", stageStart)
+
+	// Stage: produce (fail-fast on first error)
+	stageStart = time.Now()
+	for _, targetTopic := range targetTopics {
+		outRecord := cloneRecord(record)
+		outRecord.Value = payload
+		if err := p.producer.Produce(ctx, targetTopic, outRecord); err != nil {
+			p.handleFailure(ctx, record, "produce", err)
+			return
+		}
+		if p.metrics != nil {
+			p.metrics.MessagesProduced.WithLabelValues(targetTopic, "success").Inc()
+		}
+	}
+	p.observeStage("produce", stageStart)
+
+	if p.metrics != nil {
+		p.metrics.ObserveStageDuration("total", start)
+	}
+
+	p.logger.Debug("message processed",
+		"target_topics", targetTopics,
 		"duration_ms", time.Since(start).Milliseconds(),
 	)
 }

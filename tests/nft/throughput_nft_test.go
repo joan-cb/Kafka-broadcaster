@@ -43,7 +43,10 @@ func benchmarkPayload() []byte {
 	return b
 }
 
-func newNFTPipeline(t interface{ Helper(); Fatal(...interface{}) }) *pipeline.Pipeline {
+func newNFTPipeline(t interface {
+	Helper()
+	Fatal(...interface{})
+}) *pipeline.Pipeline {
 	t.Helper()
 	enc, _ := enricher.NewChain([]config.EnrichmentConfig{
 		{

@@ -6,11 +6,13 @@ import (
 	"testing"
 
 	"github.com/globalcommerce/kafka-broadcaster/internal/config"
+	"github.com/globalcommerce/kafka-broadcaster/internal/contentrouter"
 	"github.com/globalcommerce/kafka-broadcaster/internal/enricher"
 	"github.com/globalcommerce/kafka-broadcaster/internal/pipeline"
 	"github.com/globalcommerce/kafka-broadcaster/internal/router"
 	"github.com/globalcommerce/kafka-broadcaster/internal/transformer"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
@@ -76,18 +78,32 @@ func noopEnricher(t *testing.T) enricher.Enricher {
 
 func newPipeline(t *testing.T, prod pipeline.Producer, d pipeline.DLQSender, enc enricher.Enricher, rules []config.TransformationRule) *pipeline.Pipeline {
 	t.Helper()
+	return newPipelineWithContent(t, prod, d, enc, rules, nil)
+}
+
+func newPipelineWithContent(t *testing.T, prod pipeline.Producer, d pipeline.DLQSender, enc enricher.Enricher, rules []config.TransformationRule, cr *contentrouter.Router) *pipeline.Pipeline {
+	t.Helper()
 	if enc == nil {
 		enc = noopEnricher(t)
 	}
 	return pipeline.New(pipeline.Config{
-		Router:      router.New("target-topic"),
-		Transformer: transformer.New(rules),
-		Enricher:    enc,
-		Producer:    prod,
-		DLQ:         d,
-		SourceTopic: "source.events",
-		Logger:      newTestLogger(t),
+		Router:        router.New("target-topic"),
+		ContentRouter: cr,
+		Transformer:   transformer.New(rules),
+		Enricher:      enc,
+		Producer:      prod,
+		DLQ:           d,
+		SourceTopic:   "source.events",
+		Logger:        newTestLogger(t),
 	})
+}
+
+func mustContentRouter(t *testing.T, cfg config.ContentRoutingConfig) *contentrouter.Router {
+	t.Helper()
+	r, err := contentrouter.New(cfg)
+	require.NoError(t, err)
+	require.NotNil(t, r)
+	return r
 }
 
 func TestPipeline_HappyPath(t *testing.T) {
@@ -211,4 +227,110 @@ func TestPipeline_Run_ClosedChannel_Exits(t *testing.T) {
 	}()
 
 	<-done
+}
+
+func TestPipeline_ContentRouting_HappyPath_IgnoresHeader(t *testing.T) {
+	t.Parallel()
+	prod := &stubProducer{}
+	d := &stubDLQ{}
+	cr := mustContentRouter(t, config.ContentRoutingConfig{
+		Enabled:   true,
+		KeyPath:   "$.event.type",
+		ValueType: config.ContentValueString,
+		Routes: map[string][]string{
+			"order.created": {"topic.orders"},
+		},
+	})
+	p := newPipelineWithContent(t, prod, d, nil, nil, cr)
+
+	ch := make(chan *kgo.Record, 1)
+	ch <- &kgo.Record{
+		Topic:   "source.events",
+		Value:   []byte(`{"event":{"type":"order.created"}}`),
+		Headers: nil,
+	}
+	close(ch)
+
+	p.Run(context.Background(), ch)
+
+	assert.Empty(t, d.sends)
+	require.Len(t, prod.produced, 1)
+	assert.Equal(t, "topic.orders", prod.produced[0].topic)
+}
+
+func TestPipeline_ContentRouting_MultiTarget_Deduped(t *testing.T) {
+	t.Parallel()
+	prod := &stubProducer{}
+	d := &stubDLQ{}
+	cr := mustContentRouter(t, config.ContentRoutingConfig{
+		Enabled:   true,
+		KeyPath:   "$.k",
+		ValueType: config.ContentValueString,
+		Routes: map[string][]string{
+			"x": {"t1", "t1", "t2"},
+		},
+	})
+	p := newPipelineWithContent(t, prod, d, nil, nil, cr)
+
+	ch := make(chan *kgo.Record, 1)
+	ch <- record(t, "target-topic", "ignored", []byte(`{"k":"x"}`))
+	close(ch)
+
+	p.Run(context.Background(), ch)
+
+	assert.Empty(t, d.sends)
+	require.Len(t, prod.produced, 2)
+	assert.Equal(t, "t1", prod.produced[0].topic)
+	assert.Equal(t, "t2", prod.produced[1].topic)
+	assert.Equal(t, prod.produced[0].value, prod.produced[1].value)
+}
+
+func TestPipeline_ContentRouting_Unmapped_SendsDLQ(t *testing.T) {
+	t.Parallel()
+	prod := &stubProducer{}
+	d := &stubDLQ{}
+	cr := mustContentRouter(t, config.ContentRoutingConfig{
+		Enabled:   true,
+		KeyPath:   "$.k",
+		ValueType: config.ContentValueString,
+		Routes:    map[string][]string{"known": {"t"}},
+	})
+	p := newPipelineWithContent(t, prod, d, nil, nil, cr)
+
+	ch := make(chan *kgo.Record, 1)
+	ch <- record(t, "target-topic", "would-be-target", []byte(`{"k":"other"}`))
+	close(ch)
+
+	p.Run(context.Background(), ch)
+
+	assert.Empty(t, prod.produced)
+	require.Len(t, d.sends, 1)
+	assert.Equal(t, "content_routing", d.sends[0].stage)
+}
+
+func TestPipeline_ContentRouting_AfterTransform_UsesRenamedField(t *testing.T) {
+	t.Parallel()
+	prod := &stubProducer{}
+	d := &stubDLQ{}
+	cr := mustContentRouter(t, config.ContentRoutingConfig{
+		Enabled:   true,
+		KeyPath:   "$.eventType",
+		ValueType: config.ContentValueString,
+		Routes: map[string][]string{
+			"a": {"out"},
+		},
+	})
+	p := newPipelineWithContent(t, prod, d, nil, []config.TransformationRule{
+		{From: "$.event.type", To: "$.eventType"},
+	}, cr)
+
+	ch := make(chan *kgo.Record, 1)
+	ch <- record(t, "target-topic", "ignored", []byte(`{"event":{"type":"a"}}`))
+	close(ch)
+
+	p.Run(context.Background(), ch)
+
+	assert.Empty(t, d.sends)
+	require.Len(t, prod.produced, 1)
+	assert.Equal(t, "out", prod.produced[0].topic)
 }

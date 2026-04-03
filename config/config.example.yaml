@@ -7,6 +7,16 @@ kafka:
 
 routing:
   header_key: "target-topic"
+  # Optional: map one JSON field on the transformed payload to target topics.
+  # When enabled, key_path is read after transformation and before enrichment;
+  # successful lookup selects targets and the header is ignored for topic choice.
+  # content_routing:
+  #   enabled: true
+  #   key_path: "$.event.type"
+  #   value_type: string   # string | bool | int
+  #   routes:
+  #     "order.created":
+  #       - "topic.orders"
 
 transformation:
   rules:

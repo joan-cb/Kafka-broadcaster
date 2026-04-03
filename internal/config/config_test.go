@@ -150,3 +150,69 @@ func TestLoad_InvalidYAML(t *testing.T) {
 	_, err := config.Load(path)
 	require.Error(t, err)
 }
+
+func TestLoad_ContentRoutingEnabled_Valid(t *testing.T) {
+	t.Parallel()
+	path := writeTemp(t, `
+kafka:
+  brokers: ["broker:9092"]
+  source_topic: "events"
+  consumer_group: "grp"
+routing:
+  header_key: "target-topic"
+  content_routing:
+    enabled: true
+    key_path: "$.event.type"
+    value_type: string
+    routes:
+      order.created:
+        - "topic.orders"
+`)
+	cfg, err := config.Load(path)
+	require.NoError(t, err)
+	assert.True(t, cfg.Routing.ContentRouting.Enabled)
+	assert.Equal(t, "$.event.type", cfg.Routing.ContentRouting.KeyPath)
+	assert.Equal(t, config.ContentValueString, cfg.Routing.ContentRouting.ValueType)
+	assert.Equal(t, []string{"topic.orders"}, cfg.Routing.ContentRouting.Routes["order.created"])
+}
+
+func TestLoad_ContentRoutingEnabled_MissingKeyPath(t *testing.T) {
+	t.Parallel()
+	path := writeTemp(t, `
+kafka:
+  brokers: ["broker:9092"]
+  source_topic: "events"
+  consumer_group: "grp"
+routing:
+  header_key: "target-topic"
+  content_routing:
+    enabled: true
+    value_type: string
+    routes:
+      a:
+        - "t"
+`)
+	_, err := config.Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "key_path")
+}
+
+func TestLoad_ContentRoutingEnabled_EmptyRoutes(t *testing.T) {
+	t.Parallel()
+	path := writeTemp(t, `
+kafka:
+  brokers: ["broker:9092"]
+  source_topic: "events"
+  consumer_group: "grp"
+routing:
+  header_key: "target-topic"
+  content_routing:
+    enabled: true
+    key_path: "$.k"
+    value_type: string
+    routes: {}
+`)
+	_, err := config.Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "routes")
+}

@@ -61,7 +61,10 @@ func run() error {
 		return err
 	}
 
-	p := initPipeline(cfg, prod, dlqSender, enricherChain, m)
+	p, err := initPipeline(cfg, prod, dlqSender, enricherChain, m)
+	if err != nil {
+		return err
+	}
 
 	logger.Info("kafka-broadcaster started")
 

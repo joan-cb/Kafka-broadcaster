@@ -3,9 +3,9 @@ package transformer
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/globalcommerce/kafka-broadcaster/internal/config"
+	"github.com/globalcommerce/kafka-broadcaster/internal/jsonpath"
 )
 
 // Transformer applies a set of JSON field move/rename rules to a payload.
@@ -32,10 +32,10 @@ func (t *Transformer) Transform(payload []byte) ([]byte, error) {
 	}
 
 	for _, rule := range t.rules {
-		fromParts := parsePath(rule.From)
-		toParts := parsePath(rule.To)
+		fromParts := jsonpath.ParsePath(rule.From)
+		toParts := jsonpath.ParsePath(rule.To)
 
-		value, ok := getPath(doc, fromParts)
+		value, ok := jsonpath.Get(doc, fromParts)
 		if !ok {
 			continue
 		}
@@ -48,31 +48,6 @@ func (t *Transformer) Transform(payload []byte) ([]byte, error) {
 		return nil, fmt.Errorf("transformer: marshal payload: %w", err)
 	}
 	return out, nil
-}
-
-// parsePath strips the leading "$." prefix and splits on ".".
-// "$.user.name" → ["user", "name"]
-func parsePath(p string) []string {
-	p = strings.TrimPrefix(p, "$.")
-	p = strings.TrimPrefix(p, "$")
-	return strings.Split(p, ".")
-}
-
-// getPath traverses the nested map following parts and returns the value and
-// whether it was found.
-func getPath(doc map[string]interface{}, parts []string) (interface{}, bool) {
-	var current interface{} = doc
-	for _, part := range parts {
-		m, ok := current.(map[string]interface{})
-		if !ok {
-			return nil, false
-		}
-		current, ok = m[part]
-		if !ok {
-			return nil, false
-		}
-	}
-	return current, true
 }
 
 // deletePath removes the leaf key described by parts from doc.

@@ -1,5 +1,25 @@
 package config
 
+import "fmt"
+
+// ContentValueType is the strict JSON type expected at key_path for content routing.
+type ContentValueType string
+
+const (
+	ContentValueString ContentValueType = "string"
+	ContentValueBool   ContentValueType = "bool"
+	ContentValueInt    ContentValueType = "int"
+)
+
+// Validate returns an error if t is not a supported content routing value type.
+func (t ContentValueType) Validate() error {
+	switch t {
+	case ContentValueString, ContentValueBool, ContentValueInt:
+		return nil
+	default:
+		return fmt.Errorf("value_type must be string, bool, or int")
+	}
+}
 
 // Config is the root configuration for a kafka-broadcaster deployment.
 type Config struct {
@@ -18,9 +38,22 @@ type KafkaConfig struct {
 	DLQTopic      string   `yaml:"dlq_topic"`
 }
 
-// RoutingConfig defines how the target topic is resolved from a Kafka header.
+// RoutingConfig defines how the target topic is resolved from headers and,
+// optionally, from a field in the transformed JSON payload.
 type RoutingConfig struct {
-	HeaderKey string `yaml:"header_key"`
+	HeaderKey      string               `yaml:"header_key"`
+	ContentRouting ContentRoutingConfig `yaml:"content_routing"`
+}
+
+// ContentRoutingConfig maps a single JSON field (after transformation, before
+// enrichment) to one or more target topics. When enabled, lookup success
+// selects targets and the header is ignored for topic choice; on lookup
+// failure the message goes to the DLQ with stage content_routing.
+type ContentRoutingConfig struct {
+	Enabled   bool                `yaml:"enabled"`
+	KeyPath   string              `yaml:"key_path"`
+	ValueType ContentValueType    `yaml:"value_type"`
+	Routes    map[string][]string `yaml:"routes"`
 }
 
 // TransformationConfig holds the list of JSON path transformation rules.

@@ -9,6 +9,7 @@ import (
 
 	"github.com/globalcommerce/kafka-broadcaster/internal/config"
 	"github.com/globalcommerce/kafka-broadcaster/internal/consumer"
+	"github.com/globalcommerce/kafka-broadcaster/internal/contentrouter"
 	"github.com/globalcommerce/kafka-broadcaster/internal/dlq"
 	"github.com/globalcommerce/kafka-broadcaster/internal/enricher"
 	"github.com/globalcommerce/kafka-broadcaster/internal/metrics"
@@ -86,15 +87,20 @@ func initEnricherChain(cfg *config.Config) (enricher.Enricher, error) {
 	return chain, nil
 }
 
-func initPipeline(cfg *config.Config, prod *producer.Producer, dlqSender *dlq.Sender, enricherChain enricher.Enricher, m *metrics.Metrics) *pipeline.Pipeline {
+func initPipeline(cfg *config.Config, prod *producer.Producer, dlqSender *dlq.Sender, enricherChain enricher.Enricher, m *metrics.Metrics) (*pipeline.Pipeline, error) {
+	cr, err := contentrouter.New(cfg.Routing.ContentRouting)
+	if err != nil {
+		return nil, fmt.Errorf("content router: %w", err)
+	}
 	return pipeline.New(pipeline.Config{
-		Router:      router.New(cfg.Routing.HeaderKey),
-		Transformer: transformer.New(cfg.Transformation.Rules),
-		Enricher:    enricherChain,
-		Producer:    prod,
-		DLQ:         dlqSender,
-		Metrics:     m,
-		SourceTopic: cfg.Kafka.SourceTopic,
-		Logger:      logger,
-	})
+		Router:        router.New(cfg.Routing.HeaderKey),
+		ContentRouter: cr,
+		Transformer:   transformer.New(cfg.Transformation.Rules),
+		Enricher:      enricherChain,
+		Producer:      prod,
+		DLQ:           dlqSender,
+		Metrics:       m,
+		SourceTopic:   cfg.Kafka.SourceTopic,
+		Logger:        logger,
+	}), nil
 }

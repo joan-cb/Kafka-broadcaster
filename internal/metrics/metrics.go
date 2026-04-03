@@ -12,10 +12,10 @@ import (
 
 // Metrics holds all Prometheus counters and histograms for kafka-broadcaster.
 type Metrics struct {
-	MessagesConsumed  *prometheus.CounterVec
-	MessagesProduced  *prometheus.CounterVec
-	MessagesDLQ       *prometheus.CounterVec
-	PipelineDuration  *prometheus.HistogramVec
+	MessagesConsumed *prometheus.CounterVec
+	MessagesProduced *prometheus.CounterVec
+	MessagesDLQ      *prometheus.CounterVec
+	PipelineDuration *prometheus.HistogramVec
 }
 
 // New registers all metrics with the default Prometheus registry and returns a Metrics instance.
